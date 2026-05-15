@@ -84,7 +84,7 @@ def get_lux_rendered_content(data):
     3. 【动态配色方案】：
        - **预警模式 (有雨/大风/高温/污染)**：头部 #B3261E (深红)；预警条 #FFEBEE (极浅粉)；文字 #D32F2F (红)。
        - **常规模式 (晴/多云)**：头部 #007AFF (Apple Blue)；预警条 #E3F2FD (浅蓝)；文字 #1976D2 (蓝)。
-       - **公共组件**：卡片背景 #F5F5F5；降雨高亮 #E3F2FD (文字 #1976D2)；Tip Box #FFF3E0 (浅暖橙)。
+       - **公共组件**：卡背景 #F5F5F5；降雨高亮 #E3F2FD (文字 #1976D2)；Tip Box #FFF3E0 (浅暖橙)。
     4. 【间距】：模块间距 16px，卡片内边距 16px，圆角统一 12px-16px。
 
     # UI 模块架构 (动态渲染规则)
@@ -127,8 +127,11 @@ def get_lux_rendered_content(data):
         # 解析标题与内容
         if "---" in full_text:
             header, html = full_text.split("---", 1)
-            subject = header.replace("Subject:", "").strip()
+            # 严格清洗 Subject，防止换行符导致投递失败
+            subject = header.replace("Subject:", "").strip().split('\n')[0].strip()
+            subject = subject.replace('\n', '').replace('\r', '')
             return subject, html.strip()
+
         return "沙坪坝出行提醒", full_text
     except Exception as e:
         log(f"⚠️ AI 链路抖动: {e}")
