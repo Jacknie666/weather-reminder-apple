@@ -133,10 +133,14 @@ def get_lux_rendered_content(data):
         # 解析标题与内容
         if "---" in full_text:
             header, html = full_text.split("---", 1)
-            # 严格清洗 Subject，防止换行符导致投递失败
+            # 严格清洗 Subject
             subject = header.replace("Subject:", "").strip().split('\n')[0].strip()
             subject = subject.replace('\n', '').replace('\r', '')
-            return subject, html.strip()
+            
+            # 深度清洗 HTML 噪音 (移除 Markdown 代码块标识)
+            clean_html = html.replace("```html", "").replace("```", "").strip()
+            return subject, clean_html
+
 
         return "沙坪坝出行提醒", full_text
     except Exception as e:
@@ -145,7 +149,7 @@ def get_lux_rendered_content(data):
 
 # 3. 交付
 def main():
-    log("🚀 启动沙坪坝天气管家 (v3.3 华丽重构版)...")
+    log("🚀 启动沙坪坝天气管家 (v4.0 华丽典藏版)...")
     data = fetch_weather_raw()
     
     subject, html_body = get_lux_rendered_content(data)
