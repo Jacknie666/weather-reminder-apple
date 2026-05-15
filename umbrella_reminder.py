@@ -7,7 +7,7 @@ from openai import OpenAI
 import resend
 
 # ─────────────────────────────────────────────
-# ✅ 生产资源配置
+# ✅ 生产资源配置 (华丽版 3.3 - 云端同步版)
 # ─────────────────────────────────────────────
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
@@ -22,132 +22,107 @@ def log(msg):
     timestamp = datetime.now().strftime('%H:%M:%S')
     print(f"[{timestamp}] {msg}", flush=True)
 
-# ─────────────────────────────────────────────
-# 1. 扩容版数据采集 (支持 20:00 特殊任务)
-# ─────────────────────────────────────────────
-def fetch_weather_advanced():
-    log("🛰️ 正在同步沙坪坝多维气象序列 (全量 48 小时数据)...")
+def fetch_weather_raw():
+    log("🛰️ 正在采集沙坪坝多维气象序列数据...")
     try:
-        w_url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=temperature_2m,precipitation,weather_code,wind_speed_10m,uv_index,relative_humidity_2m&timezone=Asia%2FShanghai&forecast_days=2"
+        w_url = f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}&hourly=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,uv_index,relative_humidity_2m&timezone=Asia%2FShanghai&forecast_days=2"
         a_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={LAT}&longitude={LON}&hourly=us_aqi&timezone=Asia%2FShanghai"
-        
-        w_data = requests.get(w_url, timeout=15).json()
-        a_data = requests.get(a_url, timeout=15).json()
-        
+        w_res = requests.get(w_url, timeout=15).json()
+        a_res = requests.get(a_url, timeout=15).json()
         now = datetime.now()
-        is_20h = now.hour == 20
-        times = w_data['hourly']['time']
         curr_hour_str = now.strftime('%Y-%m-%dT%H:00')
+        times = w_res['hourly']['time']
         idx = times.index(curr_hour_str) if curr_hour_str in times else 0
-        
-        hourly_sequence = []
-        for i in range(idx, idx + 6):
-            if i >= len(times): break
-            hourly_sequence.append({
-                "time": "现在" if i == idx else times[i].split('T')[1],
-                "temp": w_data['hourly']['temperature_2m'][i],
-                "precip": w_data['hourly']['precipitation'][i],
-                "wind": w_data['hourly']['wind_speed_10m'][i],
-                "uv": w_data['hourly']['uv_index'][i],
-                "aqi": a_data['hourly']['us_aqi'][i] if a_data and i < len(a_data['hourly']['us_aqi']) else 50,
-                "hum": w_data['hourly']['relative_humidity_2m'][i]
-            })
-            
-        tomorrow_data = None
-        if is_20h:
-            log("🌙 触发 20:00 特殊任务：正在进行次日全量推演...")
-            tomorrow_start_str = (now + timedelta(days=1)).strftime('%Y-%m-%dT00:00')
-            t_idx = times.index(tomorrow_start_str) if tomorrow_start_str in times else idx + 4
-            
-            t_hourly = []
-            for i in range(t_idx, t_idx + 24):
-                if i >= len(times): break
-                t_hourly.append({
+        current_metrics = {
+            "time": now.strftime('%Y-%m-%d %H:%M'),
+            "temp": w_res['hourly']['temperature_2m'][idx],
+            "feels_like": w_res['hourly']['apparent_temperature'][idx],
+            "wind_speed": w_res['hourly']['wind_speed_10m'][idx],
+            "uv": w_res['hourly']['uv_index'][idx],
+            "aqi": a_res['hourly']['us_aqi'][idx] if a_res else 50,
+            "humidity": w_res['hourly']['relative_humidity_2m'][idx]
+        }
+        hourly_24h = []
+        for i in range(idx, idx + 24):
+            if i < len(times):
+                hourly_24h.append({
                     "time": times[i].split('T')[1],
-                    "temp": w_data['hourly']['temperature_2m'][i],
-                    "precip": w_data['hourly']['precipitation'][i],
-                    "uv": w_data['hourly']['uv_index'][i]
+                    "temp": w_res['hourly']['temperature_2m'][i],
+                    "precip": w_res['hourly']['precipitation'][i],
+                    "wind": w_res['hourly']['wind_speed_10m'][i],
+                    "uv": w_res['hourly']['uv_index'][i]
                 })
-            tomorrow_data = {
-                "max_temp": max([h['temp'] for h in t_hourly]),
-                "min_temp": min([h['temp'] for h in t_hourly]),
-                "max_uv": max([h['uv'] for h in t_hourly]),
-                "total_precip": sum([h['precip'] for h in t_hourly]),
-                "hourly_detail": t_hourly
-            }
-            
-        return {"current_hourly": hourly_sequence, "tomorrow": tomorrow_data, "is_20h": is_20h}
+        return {"metrics": current_metrics, "hourly_24h": hourly_24h, "is_20h": now.hour == 20}
     except Exception as e:
-        log(f"❌ 链路异常: {e}")
+        log(f"❌ 数据获取失败: {e}")
         return None
 
-def get_ai_rendered_panel(payload):
-    if not payload: return None
-    log("🎨 正在驱动 DeepSeek V4 Pro 渲染多维气象面板 (Reasoning-High)...")
+def get_lux_rendered_content(data):
+    if not data: return None, "⚠️ 天气数据获取失败，出门请看一眼窗外或随手备伞以防万一。"
+    log("🎨 驱动 DeepSeek V4 Pro 开启“华丽”渲染...")
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
-    
-    is_20h = payload.get('is_20h', False)
-    
     system_prompt = f"""
-    你是一个顶级 Apple 视觉设计师。请生成一个 HTML 片段。
-    当前任务场景: {'【20:00 夜间特刊】需包含次日详细预报' if is_20h else '【日间实时播报】'}
-    视觉协议对齐：
-    1. 头部：巨大的数字温度和当前时间，下方是体感。右侧是极细腻的综述（地点、天气状态、AQI、湿度、风速）。
-    2. 逐时：横排 6 个卡片，苹果风平滑圆角（20px），高亮“现在”。
-    3. 特殊逻辑 (如果是 20:00): 在逐时下方增加一个“📅 明日概览”模块，显示最高/最低温、最高 UV、降水概率。
-       - 如果明天有雨，必须精确指出预计降雨时段（如：14:00-17:00 预计降雨）。
-       - 明确给出明天是否需要带伞/穿雨衣的决策。
-    4. 文化角: 最底部 "Today's Korean Word" 模块。请提供 5 个符合 Topik 4 难度的韩语单词（韩文 + 中文含义）。
-    风格：活力、Apple 现代感、高对比度。直接返回 HTML 代码。
+    # Role
+    你是一个集“顶级数据分析师”与“Apple 视觉设计师”于一身的智能助手。你的任务是为居住在【重庆沙坪坝】的用户提供极具审美价值的实时出行装备建议邮件。
+    # Workflow
+    请根据提供的真实数据执行判定。
+    # Step 2: 核心决策逻辑 (严格执行)
+    - 防雨判定：有雨且风力 < 5级 -> 带伞防雨；有雨且风力 ≥ 5级 -> 穿雨衣。
+    - 防晒判定：日间 (08-18点) 且 UV ≥ 6 -> 带伞防晒。
+    - 极端天气提醒：Temp ≥ 35℃ -> 高温预警；AQI > 100 -> 建议佩戴口罩。
+    - 无雨判定：无雨且 UV < 6 -> 不需要带伞。
+    # Step 3: Apple 视觉规范 (HTML 渲染)
+    1. 【头部】：巨型温度 + 当前时间。展示 AQI、湿度、风速。
+    2. 【逐时】：6 个精美卡片。
+    3. 【装备建议】：醒目图标展示判断。
+    4. 【20:00 特刊模块】：明日温差曲线、UV 峰值、降雨精确时段。
+    5. 【文化 corner】：Today's Korean Word (5 个 TOPIK 4 单词 + 释义)。
+    # 输出要求：
+    首先输出一行 `Subject: 【出行提醒】日期 + 建议关键词`
+    然后输出 `---`
+    最后输出 HTML 代码。
     """
-    
     try:
         response = client.chat.completions.create(
             model="deepseek-v4-pro",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"沙坪坝气象数据：{json.dumps(payload)}。请输出极致精美的 HTML。"}
+                {"role": "user", "content": f"当前时间：{datetime.now().strftime('%H:%M')}，数据：{json.dumps(data)}"}
             ],
             stream=False,
             reasoning_effort="high",
             extra_body={"thinking": {"type": "enabled"}},
             timeout=180
         )
-        content = response.choices[0].message.content
-        log(f"✨ 渲染完成 (报表体积: {len(content)} 字节)")
-        return content
+        full_text = response.choices[0].message.content
+        if "---" in full_text:
+            header, html = full_text.split("---", 1)
+            subject = header.replace("Subject:", "").strip()
+            return subject, html.strip()
+        return "沙坪坝出行提醒", full_text
     except Exception as e:
         log(f"⚠️ AI 渲染抖动: {e}")
-        return "<p>Apple Style 渲染中，请检查网络...</p>"
+        return "沙坪坝出行提醒", "⚠️ 渲染失败。"
 
 def main():
-    log("🚀 启动沙坪坝天气管家生产引擎 (v3.0 场景化升级)...")
-    payload = fetch_weather_advanced()
-    if not payload: return
-    
-    html_content = get_ai_rendered_panel(payload)
-    
-    wrapper = f\"\"\"
-    <div style="background-color: #f2f4f7; padding: 30px 5px; min-height: 100vh;">
-        <div style="max-width: 500px; margin: 0 auto; background: #fff; border-radius: 35px; box-shadow: 0 25px 70px rgba(0,0,0,0.1); overflow: hidden;">
-            {html_content}
-            <div style="padding: 20px; text-align: center; border-top: 1px solid #f8f9fa;">
-                <p style="margin: 0; color: #d1d1d6; font-size: 10px; letter-spacing: 2px;">DESIGNED BY AI · SHAPINGBA HUB</p>
+    log("🚀 启动沙坪坝天气管家 (v3.3 华丽重构版)...")
+    data = fetch_weather_raw()
+    subject, html_body = get_lux_rendered_content(data)
+    final_html = f\"\"\"
+    <div style="background-color: #f5f5f7; padding: 40px 10px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+        <div style="max-width: 550px; margin: 0 auto; background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(20px); border-radius: 32px; box-shadow: 0 20px 80px rgba(0,0,0,0.1); overflow: hidden; border: 1px solid rgba(255,255,255,0.4);">
+            {html_body}
+            <div style="padding: 30px; text-align: center; border-top: 1px solid rgba(0,0,0,0.05);">
+                <p style="margin: 0; color: #8e8e93; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;">Designed for High-Aesthetic Decision Making</p>
             </div>
         </div>
     </div>
     \"\"\"
-    
     try:
-        resend.Emails.send({
-            "from": FROM_EMAIL,
-            "to": [TO_EMAIL],
-            "subject": "沙坪坝天气播报",
-            "html": wrapper
-        })
-        log("🎉 [交付成功] 场景化报表已闭环投递。")
+        resend.Emails.send({ "from": FROM_EMAIL, "to": [TO_EMAIL], "subject": subject, "html": final_html })
+        log(f"🎉 [交付成功] 邮件标题：{subject}")
     except Exception as e:
-        log(f"❌ 投递中断: {e}")
+        log(f"❌ 投递失败: {e}")
 
 if __name__ == "__main__":
     main()
