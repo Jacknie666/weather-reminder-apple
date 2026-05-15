@@ -71,55 +71,90 @@ def fetch_weather_raw():
         log(f"❌ 数据获取失败: {e}")
         return None
 
-# 2. 学霸助教级 AI 渲染引擎
+# 2. 早安邮件 AI 渲染引擎
 def get_lux_rendered_content(data):
     if not data: return None, "⚠️ 数据获取失败，请手动确认今日计划。"
     
-    log("🎓 正在启动“学霸助教”渲染模式 (DeepSeek Pro)...")
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
     
     now = datetime.now(CHINA_TZ)
-    # 模拟数据对齐 (未来可扩展为动态抓取)
-    exam_info = "TOPIK 4级考试 (倒计时 35天) | 人工智能综合能力提升培训"
-    course_info = "周五全天：数字逻辑与计算机组成实战 + 机器学习前沿专题"
+    metrics = data.get('metrics', {})
+    hourly  = data.get('hourly_24h', [])
 
-    system_prompt = f"""
-    你是具备顶级 UI/UX 意识和时间管理能力的学霸助教。
-    当前日期：{now.strftime('%Y-%m-%d')}
-    
-    【底层数据对齐】
-    1. 待考目标：{exam_info}
-    2. 今日上课占用（必须避开）：{course_info}
-    3. 实时天气序列（沙坪坝）：{json.dumps(data)}
+    # ── 提取核心气象指标 ────────────────────────────
+    temp       = metrics.get('temp', 'N/A')
+    feels_like = metrics.get('feels_like', 'N/A')
+    humidity   = metrics.get('humidity', 'N/A')
+    wind_speed = metrics.get('wind_speed', 'N/A')
+    uv         = metrics.get('uv', 'N/A')
+    aqi        = metrics.get('aqi', 'N/A')
 
-    【交付要求】
-    请直接输出一段 HTML 代码片段，用于嵌入邮件。
-    要求：
-    - 使用内联 CSS 样式，确保在 QQ 邮箱中显示美观（Apple 风格，简洁高端）。
-    - 采用卡片式设计，时间分布建议使用表格 <table> 展示逐时天气与出行建议。
-    - **融合天气决策**：根据降雨概率/风力/UV 指数，给出精准的“学霸出行指南”（如：带伞/加衣）。
-    - 给出 3-5 个易错的知识点（适合背诵记忆，如 Python 装饰器 or 计算机架构 gotchas）。
-    - 最后给出一个韩语的名言名句用于积累（带中文翻译）。
-    - **严禁输出 ```html 标签，直接从 <div> 开始。**
-    """
+    # 降水概率（有降水的小时数占比）
+    precip_hours = sum(1 for h in hourly if h.get('precip', 0) > 0)
+    rain_prob    = f"{round(precip_hours / len(hourly) * 100) if hourly else 0}%"
+
+    # 24h 温度区间
+    temps      = [h['temp'] for h in hourly if 'temp' in h]
+    temp_min   = min(temps) if temps else temp
+    temp_max   = max(temps) if temps else temp
+    temp_range = f"{temp_min}°C ~ {temp_max}°C"
+
+    # AQI 文字描述
+    try:
+        aqi_val = int(float(str(aqi)))
+    except (ValueError, TypeError):
+        aqi_val = 0
+    if aqi_val <= 50:
+        aqi_desc = "优"
+    elif aqi_val <= 100:
+        aqi_desc = "良"
+    elif aqi_val <= 150:
+        aqi_desc = "轻度污染"
+    else:
+        aqi_desc = "中度污染"
+    aqi_display = f"{aqi} ({aqi_desc})"
+
+    # 天气氛围（用于色彩提示）
+    weather_condition = "雨天" if precip_hours > 3 else ("阴天" if precip_hours > 0 else "晴天")
+    location = "重庆沙坪坝"
+
+    system_prompt = f"""你是具备顶级 UI/UX 意识和极强生活关怀的智能私人助理。
+当前日期：{now.strftime('%Y-%m-%d')}
+当前位置：{location}
+
+【底层数据对齐】
+1. 今日天气概况：{weather_condition}
+2. 气温与体感：气温范围 {temp_range}，体感温度 {feels_like}°C
+3. 关键指数：降水概率 {rain_prob}，空气质量 {aqi_display}
+4. 完整逐时序列（供参考）：{json.dumps(hourly[:12], ensure_ascii=False)}
+
+【交付要求】
+请直接输出一段 HTML 代码片段，用于嵌入每日早安邮件。
+要求：
+- 使用内联 CSS 样式，色彩搭配要契合今天的天气，确保在 QQ 邮箱中完美显示。
+- 采用卡片式现代设计，天气核心数据（温度、降水、空气质量等）必须使用 <table> 进行对齐和栅格化展示。
+- 根据天气状况，给出一句简短贴心的【出行建议】。
+- 每日语感积累：结合今天的天气氛围，给出一句优美或实用的【韩语双语短句/名言】。
+- 每日学术能量：给出一个易错的知识点（适合背诵记忆，如 Python 装饰器或计算机架构 gotchas）。
+- 每日会计分录：给出一道中级财务会计的题目和解析。
+- 严格无冗余：不要输出任何解释性文字，不要输出 ```html 标签，必须直接从 <div style="..."> 开始生成纯净的代码。"""
 
     try:
-        # 切换为普通 Pro 模型，取消推理模式以实现闪电交付
         response = client.chat.completions.create(
-            model="deepseek-chat", 
+            model="deepseek-chat",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": "请根据最新数据，为我生成今日份的学霸助教报表。"}
+                {"role": "user", "content": "请根据最新数据，为我生成今日早安天气邮件卡片。"}
             ],
             stream=False,
             timeout=60
         )
 
         full_text = response.choices[0].message.content
-        log("✨ 助教报表生成完毕")
-        
+        log("✨ 早安邮件卡片生成完毕")
+
         # 尝试提取标题 (如果 AI 还是输出了 Subject)
-        subject = f"【助教提醒】{now.strftime('%m/%d')} · 出行指南 & 学术能量包"
+        subject = f"【早安】{now.strftime('%m/%d')} · {location} 今日天气速递"
         if "Subject:" in full_text:
             lines = full_text.split('\n')
             for line in lines:
@@ -136,8 +171,8 @@ def get_lux_rendered_content(data):
         return subject, clean_html
 
     except Exception as e:
-        log(f"⚠️ 助教链路繁忙: {e}")
-        return "沙坪坝助教提醒", "⚠️ 报表生成失败，请查收备份数据。"
+        log(f"⚠️ 渲染链路繁忙: {e}")
+        return "沙坪坝天气速递", "⚠️ 报表生成失败，请查收备份数据。"
 
 
 # 3. 交付
