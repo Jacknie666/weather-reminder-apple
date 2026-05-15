@@ -54,7 +54,7 @@ def fetch_weather_raw():
             "humidity": w_res['hourly']['relative_humidity_2m'][idx]
         }
         
-        # 逐时预报 (未来 24 小时)
+        # 逐时预报 (未来 24 小时，含明日)
         hourly_24h = []
         for i in range(idx, idx + 24):
             if i < len(times):
@@ -65,13 +65,34 @@ def fetch_weather_raw():
                     "wind": w_res['hourly']['wind_speed_10m'][i],
                     "uv": w_res['hourly']['uv_index'][i]
                 })
-        
-        return {"metrics": current_metrics, "hourly_24h": hourly_24h, "is_20h": now.hour == 20}
+
+        # 20:00 时额外抓取明日全天数据 (明日 00:00 ~ 23:00)
+        is_20h = (now.hour == 20)
+        tomorrow_hourly = []
+        if is_20h:
+            tomorrow_start = now + timedelta(hours=4)  # 20+4=00:00 次日
+            tomorrow_date_str = tomorrow_start.strftime('%Y-%m-%d')
+            for i, t in enumerate(times):
+                if t.startswith(tomorrow_date_str) and i < len(w_res['hourly']['temperature_2m']):
+                    tomorrow_hourly.append({
+                        "time": t.split('T')[1],
+                        "temp": w_res['hourly']['temperature_2m'][i],
+                        "precip": w_res['hourly']['precipitation'][i],
+                        "wind": w_res['hourly']['wind_speed_10m'][i],
+                        "uv": w_res['hourly']['uv_index'][i]
+                    })
+
+        return {
+            "metrics": current_metrics,
+            "hourly_24h": hourly_24h,
+            "tomorrow_hourly": tomorrow_hourly,
+            "is_20h": is_20h
+        }
     except Exception as e:
         log(f"❌ 数据获取失败: {e}")
         return None
 
-# 2. 早安邮件 AI 渲染引擎
+# 2. 学霸助教级 AI 渲染引擎
 def get_lux_rendered_content(data):
     if not data: return None, "⚠️ 数据获取失败，请手动确认今日计划。"
     
@@ -117,8 +138,48 @@ def get_lux_rendered_content(data):
     # 天气氛围（用于色彩提示）
     weather_condition = "雨天" if precip_hours > 3 else ("阴天" if precip_hours > 0 else "晴天")
     location = "重庆沙坪坝"
+    is_20h   = data.get('is_20h', False)
+    tomorrow_hourly = data.get('tomorrow_hourly', [])
 
-    system_prompt = f"""你是具备顶级 UI/UX 意识和极强生活关怀的智能私人助理。
+    if is_20h:
+        # ── 20:00 专属：明日天气概况模式 ─────────────────
+        tomorrow_date = (now + timedelta(days=1)).strftime('%Y-%m-%d (%A)')
+        t_temps   = [h['temp']   for h in tomorrow_hourly if 'temp'   in h]
+        t_precips = [h['precip'] for h in tomorrow_hourly if 'precip' in h]
+        t_temp_min = min(t_temps)   if t_temps   else 'N/A'
+        t_temp_max = max(t_temps)   if t_temps   else 'N/A'
+        t_rain_hrs = sum(1 for p in t_precips if p > 0)
+        t_rain_prob = f"{round(t_rain_hrs / len(t_precips) * 100) if t_precips else 0}%"
+        t_condition = "雨天" if t_rain_hrs > 3 else ("阴天" if t_rain_hrs > 0 else "晴天")
+
+        subject = f"【晚安·明日预告】{(now + timedelta(days=1)).strftime('%m/%d')} · {location} 天气概况"
+        system_prompt = f"""你是具备顶级 UI/UX 意识和极强生活关怀的智能私人助理。
+当前时间：{now.strftime('%Y-%m-%d %H:%M')}（北京时间）
+当前位置：{location}
+
+【明日天气数据】
+明日日期：{tomorrow_date}
+天气概况：{t_condition}
+气温区间：{t_temp_min}°C ~ {t_temp_max}°C
+降水概率：{t_rain_prob}
+逐时序列：{json.dumps(tomorrow_hourly, ensure_ascii=False)}
+
+【交付要求】
+请直接输出一段 HTML 代码片段，用于嵌入晚间天气预报邮件。
+要求：
+- 使用内联 CSS 样式，深色/宁静夜间色调（深蓝/靛紫系），确保在 QQ 邮箱中完美显示。
+- 开头用一句温暖晚安问候语。
+- 【明日全天概况】：用 <table> 展示明日全天逐时天气（时间 / 温度 / 降水 / 风速 / UV），高风险时段色块标注。
+- 给出明日的【穿搭与出行建议】（需结合早/中/晚温差）。
+- 每日语感积累：给出一句与夜晚或明日相关的【韩语双语短句/名言】。
+- 每日学术能量：给出一个易错的知识点（适合睡前记忆）。
+- 每日会计分录：给出一道中级财务会计的写会计分录复杂综合题目 给出答案。
+- 严格无冗余：不要输出任何解释性文字，不要输出 ```html 标签，必须直接从 <div style="..."> 开始生成纯净的代码。"""
+
+    else:
+        # ── 日间模式（08/12/16 点）：当前天气 + 未来4小时趋势 ─
+        subject = f"【早安】{now.strftime('%m/%d %H:%M')} · {location} 天气速递"
+        system_prompt = f"""你是具备顶级 UI/UX 意识和极强生活关怀的智能私人助理。
 当前日期：{now.strftime('%Y-%m-%d')}
 当前位置：{location}
 
@@ -129,11 +190,11 @@ def get_lux_rendered_content(data):
 4. 完整逐时序列（供参考）：{json.dumps(hourly[:12], ensure_ascii=False)}
 
 【交付要求】
-请直接输出一段 HTML 代码片段，用于嵌入每日早安邮件。
+请直接输出一段 HTML 代码片段，用于嵌入天气速递邮件。
 要求：
 - 使用内联 CSS 样式，色彩搭配要契合今天的天气，确保在 QQ 邮箱中完美显示。
 - 采用卡片式现代设计，天气核心数据（温度、降水、空气质量等）必须使用 <table> 进行对齐和栅格化展示。
-- 【逐时趋势】：用 <table> 展示未来 12 小时逐时天气（时间 / 温度 / 降水mm / 风速 / UV），用色块或 emoji 直观标注高风险时段（降水 > 0.5mm 标橙，UV > 5 标红）。
+- 【逐时趋势】：用 <table> 展示未来 4 小时逐时天气（时间 / 温度 / 降水mm / 风速 / UV），用色块或 emoji 直观标注高风险时段（降水 > 0.5mm 标橙，UV > 5 标红）。
 - 根据天气状况，给出一句简短贴心的【出行建议】。
 - 每日语感积累：结合今天的天气氛围，给出一句优美或实用的【韩语双语短句/名言】。
 - 每日学术能量：给出一个易错的知识点（适合背诵记忆，如 Python 装饰器或计算机架构 gotchas）。
@@ -152,10 +213,9 @@ def get_lux_rendered_content(data):
         )
 
         full_text = response.choices[0].message.content
-        log("✨ 早安邮件卡片生成完毕")
+        log("✨ 邮件卡片生成完毕")
 
-        # 尝试提取标题 (如果 AI 还是输出了 Subject)
-        subject = f"【早安】{now.strftime('%m/%d')} · {location} 今日天气速递"
+        # subject 已在上方按模式设定，若 AI 输出了 Subject: 行则覆盖
         if "Subject:" in full_text:
             lines = full_text.split('\n')
             for line in lines:
@@ -172,8 +232,8 @@ def get_lux_rendered_content(data):
         return subject, clean_html
 
     except Exception as e:
-        log(f"⚠️ 渲染链路繁忙: {e}")
-        return "沙坪坝天气速递", "⚠️ 报表生成失败，请查收备份数据。"
+        log(f"⚠️ 助教链路繁忙: {e}")
+        return "沙坪坝助教提醒", "⚠️ 报表生成失败，请查收备份数据。"
 
 
 # 3. 交付
