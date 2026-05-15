@@ -1,20 +1,19 @@
-name: Hourly Weather Reminder
+name: Daily Weather Reminder (CST 08/12/16/20)
 
 on:
   schedule:
-    # 协调世界时 (UTC)。北京时间 (CST) = UTC + 8
-    # 00:00 UTC = 08:00 CST
-    # 04:00 UTC = 12:00 CST
-    # 08:00 UTC = 16:00 CST
-    # 12:00 UTC = 20:00 CST (触发次日预报逻辑)
-    # 16:00 UTC = 00:00 CST
-    - cron: '0 0,4,8,12,16,20 * * *'
+    # 北京时间 (CST = UTC+8)，每4小时执行一次，从08:00开始
+    # 08:00 CST = 00:00 UTC
+    # 12:00 CST = 04:00 UTC
+    # 16:00 CST = 08:00 UTC
+    # 20:00 CST = 12:00 UTC  ← 触发次日概况
+    - cron: '0 0,4,8,12 * * *'
   workflow_dispatch: # 允许手动运行
 
 jobs:
   run-reminder:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
