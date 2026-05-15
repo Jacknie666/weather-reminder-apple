@@ -2,13 +2,14 @@ import os
 import requests
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from openai import OpenAI
 import resend
 
 # ─────────────────────────────────────────────
-# ✅ 生产资源配置 (华丽版 3.3)
+# ✅ 生产资源配置 (华丽版 4.0)
 # ─────────────────────────────────────────────
+CHINA_TZ = timezone(timedelta(hours=8))
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "re_Mj3rvjXM_NmerdtHrqeiPXq9oQUJqtsLa")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-da42ff2bc508463a97578370d4283549")
 
@@ -19,7 +20,7 @@ TO_EMAIL = "1321953481@qq.com"
 LAT, LON = 29.53, 106.45
 
 def log(msg):
-    timestamp = datetime.now().strftime('%H:%M:%S')
+    timestamp = datetime.now(CHINA_TZ).strftime('%H:%M:%S')
     print(f"[{timestamp}] {msg}", flush=True)
 
 # 1. 精准数据获取
@@ -32,9 +33,14 @@ def fetch_weather_raw():
         w_res = requests.get(w_url, timeout=15).json()
         a_res = requests.get(a_url, timeout=15).json()
         
-        now = datetime.now()
+        now = datetime.now(CHINA_TZ)
         curr_hour_str = now.strftime('%Y-%m-%dT%H:00')
-        times = w_res['hourly']['time']
+        times = w_res.get('hourly', {}).get('time', [])
+        
+        if not times:
+            log("⚠️ 未获取到逐时数据序列")
+            return None
+
         idx = times.index(curr_hour_str) if curr_hour_str in times else 0
         
         # 实时指标
@@ -44,7 +50,7 @@ def fetch_weather_raw():
             "feels_like": w_res['hourly']['apparent_temperature'][idx],
             "wind_speed": w_res['hourly']['wind_speed_10m'][idx],
             "uv": w_res['hourly']['uv_index'][idx],
-            "aqi": a_res['hourly']['us_aqi'][idx] if a_res else 50,
+            "aqi": a_res.get('hourly', {}).get('us_aqi', [50])[idx],
             "humidity": w_res['hourly']['relative_humidity_2m'][idx]
         }
         
@@ -84,7 +90,7 @@ def get_lux_rendered_content(data):
     3. 【动态配色方案】：
        - **预警模式 (有雨/大风/高温/污染)**：头部 #B3261E (深红)；预警条 #FFEBEE (极浅粉)；文字 #D32F2F (红)。
        - **常规模式 (晴/多云)**：头部 #007AFF (Apple Blue)；预警条 #E3F2FD (浅蓝)；文字 #1976D2 (蓝)。
-       - **公共组件**：卡背景 #F5F5F5；降雨高亮 #E3F2FD (文字 #1976D2)；Tip Box #FFF3E0 (浅暖橙)。
+       - **公共组件**：卡片背景 #F5F5F5；降雨高亮 #E3F2FD (文字 #1976D2)；Tip Box #FFF3E0 (浅暖橙)。
     4. 【间距】：模块间距 16px，卡片内边距 16px，圆角统一 12px-16px。
 
     # UI 模块架构 (动态渲染规则)
@@ -113,7 +119,7 @@ def get_lux_rendered_content(data):
             model="deepseek-v4-pro",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"当前时间：{datetime.now().strftime('%H:%M')}，数据：{json.dumps(data)}"}
+                {"role": "user", "content": f"当前时间：{datetime.now(CHINA_TZ).strftime('%Y-%m-%d %H:%M')}，数据：{json.dumps(data)}"}
             ],
             stream=False,
             reasoning_effort="high",
