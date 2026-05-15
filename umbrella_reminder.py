@@ -71,81 +71,74 @@ def fetch_weather_raw():
         log(f"❌ 数据获取失败: {e}")
         return None
 
-# 2. 华丽版 AI 渲染引擎
+# 2. 学霸助教级 AI 渲染引擎
 def get_lux_rendered_content(data):
-    if not data: return None, "⚠️ 天气数据获取失败，出门请看一眼窗外或随手备伞以防万一。"
+    if not data: return None, "⚠️ 数据获取失败，请手动确认今日计划。"
     
-    log("🎨 正在驱动 DeepSeek V4 Pro 开启“华丽”渲染模式 (Reasoning-High)...")
+    log("🎓 正在启动“学霸助教”渲染模式 (DeepSeek Pro)...")
     client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
     
-    # 注入用户提供的整套华丽提示词 (VIP 典藏版)
+    now = datetime.now(CHINA_TZ)
+    # 模拟数据对齐 (未来可扩展为动态抓取)
+    exam_info = "TOPIK 4级考试 (倒计时 35天) | 人工智能综合能力提升培训"
+    course_info = "周五全天：数字逻辑与计算机组成实战 + 机器学习前沿专题"
+
     system_prompt = f"""
-    # Role
-    你是一个顶级的资深前端工程师兼 UI 设计师，精通现代移动端 Web 布局 (Mobile-First)。
-    你的任务是为【重庆沙坪坝】用户生成一份极致精美、高审美价值的“全能天气预警卡片”。
+    你是具备顶级 UI/UX 意识和时间管理能力的学霸助教。
+    当前日期：{now.strftime('%Y-%m-%d')}
+    
+    【底层数据对齐】
+    1. 待考目标：{exam_info}
+    2. 今日上课占用（必须避开）：{course_info}
+    3. 实时天气序列（沙坪坝）：{json.dumps(data)}
 
-    # Design System (核心规范)
-    1. 【容器】：max-width: 480px; margin: 0 auto; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    2. 【字体】：-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    3. 【动态配色方案】：
-       - **预警模式 (有雨/大风/高温/污染)**：头部 #B3261E (深红)；预警条 #FFEBEE (极浅粉)；文字 #D32F2F (红)。
-       - **常规模式 (晴/多云)**：头部 #007AFF (Apple Blue)；预警条 #E3F2FD (浅蓝)；文字 #1976D2 (蓝)。
-       - **公共组件**：卡片背景 #F5F5F5；降雨高亮 #E3F2FD (文字 #1976D2)；Tip Box #FFF3E0 (浅暖橙)。
-    4. 【间距】：模块间距 16px，卡片内边距 16px，圆角统一 12px-16px。
-
-    # UI 模块架构 (动态渲染规则)
-    1. **彩色警报头部**：显示“⚠️ 强降雨预警”或“☀️ 今日天气概览”。
-    2. **紧急建议横幅**：横跨全宽，根据数据给出最高烈度的动作建议 (如：务必带伞/穿雨衣)。
-    3. **实时天气卡片**：展示巨型温度、温差、天气现象、风力湿度。
-    4. **逐时预报 (Grid/Flex)**：展示 5-6 个小时。**关键**：不下雨用浅灰背景，有雨时段强制使用浅蓝背景+蓝色文字。
-    5. **今日指数 (2x2 Grid)**：空气、穿衣、感冒、紫外线。
-    6. **降雨过程警告框 (条件展示)**：**仅在未来 24 小时有雨时展示**。浅粉背景，左侧 4px 红色粗边框。
-    7. **明日天气警告框 (条件展示)**：**仅在 20:00 报告且明日有恶劣天气时展示**。
-    8. **底部行动建议 (Action Tip Box)**：#FFF3E0 背景，图标组合 (如 ☔🧥) 需随天气动态变化。📌列表展示 4 条具体建议。
-    9. **文化 corner**：Today's Korean Word accoding to famous event in today(5 个单词，优雅呈现)。
-
-    # Output Requirements
-    - 首先输出一行 `Subject: 【VIP 出行提醒】日期 + 决策关键词`
-    - 然后输出 `---`
-    - 最后输出完整的 HTML (含内联 CSS)。
+    【交付要求】
+    请直接输出一段 HTML 代码片段，用于嵌入邮件。
+    要求：
+    - 使用内联 CSS 样式，确保在 QQ 邮箱中显示美观（Apple 风格，简洁高端）。
+    - 采用卡片式设计，时间分布建议使用表格 <table> 展示逐时天气与出行建议。
+    - **融合天气决策**：根据降雨概率/风力/UV 指数，给出精准的“学霸出行指南”（如：带伞/加衣）。
+    - 给出 3-5 个易错的知识点（适合背诵记忆，如 Python 装饰器 or 计算机架构 gotchas）。
+    - 最后给出一个韩语的名言名句用于积累（带中文翻译）。
+    - **严禁输出 ```html 标签，直接从 <div> 开始。**
     """
 
-
-
-
-    
     try:
+        # 切换为普通 Pro 模型，取消推理模式以实现闪电交付
         response = client.chat.completions.create(
-            model="deepseek-v4-pro",
+            model="deepseek-chat", 
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"当前时间：{datetime.now(CHINA_TZ).strftime('%Y-%m-%d %H:%M')}，数据：{json.dumps(data)}"}
+                {"role": "user", "content": "请根据最新数据，为我生成今日份的学霸助教报表。"}
             ],
             stream=False,
-            reasoning_effort="high",
-            extra_body={"thinking": {"type": "enabled"}},
-            timeout=180
+            timeout=60
         )
 
         full_text = response.choices[0].message.content
-        log(f"✨ 华丽渲染完成")
+        log("✨ 助教报表生成完毕")
         
-        # 解析标题与内容
-        if "---" in full_text:
-            header, html = full_text.split("---", 1)
-            # 严格清洗 Subject
-            subject = header.replace("Subject:", "").strip().split('\n')[0].strip()
-            subject = subject.replace('\n', '').replace('\r', '')
-            
-            # 深度清洗 HTML 噪音 (移除 Markdown 代码块标识)
-            clean_html = html.replace("```html", "").replace("```", "").strip()
-            return subject, clean_html
+        # 尝试提取标题 (如果 AI 还是输出了 Subject)
+        subject = f"【助教提醒】{now.strftime('%m/%d')} · 出行指南 & 学术能量包"
+        if "Subject:" in full_text:
+            lines = full_text.split('\n')
+            for line in lines:
+                if "Subject:" in line:
+                    subject = line.replace("Subject:", "").strip()
+                    break
+        
+        # 直接清理所有 Markdown 痕迹
+        clean_html = full_text.replace("```html", "").replace("```", "").strip()
+        # 提取第一个 <div> 之后的内容 (以防万一有文字)
+        if "<div" in clean_html:
+            clean_html = clean_html[clean_html.find("<div"):]
 
+        return subject, clean_html
 
-        return "沙坪坝出行提醒", full_text
     except Exception as e:
-        log(f"⚠️ AI 链路抖动: {e}")
-        return "沙坪坝出行提醒", "⚠️ 渲染失败，请检查 API 配置。"
+        log(f"⚠️ 助教链路繁忙: {e}")
+        return "沙坪坝助教提醒", "⚠️ 报表生成失败，请查收备份数据。"
+
 
 # 3. 交付
 def main():
