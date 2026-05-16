@@ -178,7 +178,7 @@ def get_lux_rendered_content(data):
 
     else:
         # ── 日间模式（08/12/16 点）：当前天气 + 未来4小时趋势 ─
-        subject = f"【早安】{now.strftime('%m/%d %H:%M')} · {location} 天气速递"
+        subject = f"{now.strftime('%m/%d %H:%M')} · {location} 天气速递"
         system_prompt = f"""你是具备顶级 UI/UX 意识和极强生活关怀的智能私人助理。
 当前日期：{now.strftime('%Y-%m-%d')}
 当前位置：{location}
