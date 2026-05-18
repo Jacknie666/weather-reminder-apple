@@ -10,8 +10,14 @@ import resend
 # ✅ 生产资源配置 (华丽版 4.0)
 # ─────────────────────────────────────────────
 CHINA_TZ = timezone(timedelta(hours=8))
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "re_Mj3rvjXM_NmerdtHrqeiPXq9oQUJqtsLa")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "sk-da42ff2bc508463a97578370d4283549")
+
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+
+if not RESEND_API_KEY:
+    raise ValueError("❌ 缺少环境变量 RESEND_API_KEY，请在 GitHub Secrets 中配置")
+if not DEEPSEEK_API_KEY:
+    raise ValueError("❌ 缺少环境变量 DEEPSEEK_API_KEY，请在 GitHub Secrets 中配置")
 
 resend.api_key = RESEND_API_KEY
 FROM_EMAIL = "WeatherBot <system@cccat520.fun>"
